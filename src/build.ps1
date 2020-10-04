@@ -11,26 +11,28 @@ function Find-MSBuild {
     }
 }
 
-function Run-MSBuild {
-    $msbuild = Find-Msbuild
-    if (!$msbuild) { throw "You need Visual Studio 2019 v16.5+ to build this project" }
-    . $msbuild @args
+function Run-DotNet {
+    if (Get-Command dotnet -ErrorAction SilentlyContinue) {
+        dotnet @args
+    } else {
+        ..\0install.ps1 run --batch --version 3.1..!3.2 https://apps.0install.net/dotnet/core-sdk.xml @args
+    }
     if ($LASTEXITCODE -ne 0) {throw "Exit Code: $LASTEXITCODE"}
 }
 
-function SearchAndReplace($Value, $FilePath, $PatternLeft, $PatternRight)
-{
-    (Get-Content $FilePath -Encoding UTF8) `
-        -replace "$PatternLeft.*$PatternRight", ($PatternLeft.Replace('\', '') + $Value + $PatternRight.Replace('\', '')) |
-        Set-Content $FilePath -Encoding UTF8
+function Run-MSBuild {
+    $msbuild = Find-MSBuild
+    if ($msbuild) {
+        . $msbuild @args
+        if ($LASTEXITCODE -ne 0) {throw "Exit Code: $LASTEXITCODE"}
+    } else {
+        Write-Warning "You need Visual Studio 2019 v16.5+ to perform a full build of this project"
+        Run-DotNet msbuild @args
+    }
 }
 
-# Inject version number
-Set-Content -Path "Publish.WinForms\VERSION" -Value $Version -Encoding UTF8
-$AssemblyVersion = $Version.Split("-")[0]
-SearchAndReplace $AssemblyVersion GlobalAssemblyInfo.cs -PatternLeft 'AssemblyVersion\("' -PatternRight '"\)'
-
-# Compile source code
-Run-MSBuild /v:Quiet /t:Restore /t:Build /p:Configuration=Release
+# Build
+if ($env:CI) { $ci = "/p:ContinuousIntegrationBuild=True" }
+Run-MSBuild /v:Quiet /t:Restore /t:Build $ci /p:Configuration=Release /p:Version=$Version
 
 popd
